@@ -81,7 +81,7 @@ def fc(input_data, out_dim, non_linear_fn=None, initial_value=None, use_bias=Tru
             flat_input = input_data
 
         if initial_value is None:
-            fc_weight = tf.get_variable("weights", shape=[in_dim, out_dim], initializer=tf.random_normal_initializer(mean=0., stddev=1.))
+            fc_weight = tf.get_variable("weights", shape=[in_dim, out_dim], initializer=tf.random_normal_initializer(mean=0., stddev=0.01))
             fc_bias = tf.get_variable("bias", shape=[out_dim], initializer=tf.constant_initializer(0.0))
         else:
             fc_weight = tf.get_variable("weights", initializer=initial_value[0])
@@ -124,7 +124,7 @@ def batch_norm(x, b_train, scope, reuse=False):
 
 
 def conv(input, scope, filter_dims, stride_dims, padding='SAME',
-         non_linear_fn=tf.nn.relu, dilation=[1, 1, 1, 1], bias=True):
+         non_linear_fn=tf.nn.relu, dilation=[1, 1, 1, 1], bias=True, sn=False):
     input_dims = input.get_shape().as_list()
 
     assert (len(input_dims) == 4)  # batch_size, height, width, num_channels_in
@@ -136,10 +136,18 @@ def conv(input, scope, filter_dims, stride_dims, padding='SAME',
     stride_h, stride_w = stride_dims
 
     with tf.variable_scope(scope):
-        conv_weight = tf.Variable(
-            tf.truncated_normal([filter_h, filter_w, num_channels_in, num_channels_out], stddev=0.1, dtype=tf.float32))
-        conv_bias = tf.Variable(tf.zeros([num_channels_out], dtype=tf.float32))
-        map = tf.nn.conv2d(input, conv_weight, strides=[1, stride_h, stride_w, 1], padding=padding, dilations=dilation)
+
+        conv_weight = tf.get_variable('weight',
+                                      shape=[filter_h, filter_w, num_channels_in, num_channels_out],
+                                      initializer=tf.truncated_normal_initializer(mean=0.0, stddev=0.1))
+        conv_bias = tf.get_variable('bias', shape=[num_channels_out],
+                                    initializer=tf.zeros_initializer)
+        conv_filter = conv_weight
+
+        if sn == True:
+            conv_filter = spectral_norm(conv_weight)
+
+        map = tf.nn.conv2d(input, filter=conv_filter, strides=[1, stride_h, stride_w, 1], padding=padding, dilations=dilation)
 
         if bias is True:
             map = tf.nn.bias_add(map, conv_bias)
@@ -177,7 +185,7 @@ def batch_norm_conv(x, b_train, scope):
 
 
 def add_dense_layer(layer, filter_dims, act_func=tf.nn.relu, scope='dense_layer',
-                    use_bn=True, bn_phaze=False, use_bias=False, dilation=[1, 1, 1, 1]):
+                    use_bn=True, bn_phaze=False, use_bias=False, dilation=[1, 1, 1, 1], sn=False):
     with tf.variable_scope(scope):
         l = layer
 
@@ -186,14 +194,14 @@ def add_dense_layer(layer, filter_dims, act_func=tf.nn.relu, scope='dense_layer'
 
         l = act_func(l)
         l = conv(l, scope='conv', filter_dims=filter_dims, stride_dims=[1, 1], dilation=dilation,
-                 non_linear_fn=None, bias=use_bias)
+                 non_linear_fn=None, bias=use_bias, sn=sn)
         l = tf.concat([l, layer], 3)
 
     return l
 
 
 def add_residual_layer(layer, filter_dims, act_func=tf.nn.relu, scope='residual_layer',
-                       use_bn=True, bn_phaze=False, use_bias=False, dilation=[1, 1, 1, 1]):
+                       use_bn=True, bn_phaze=False, use_bias=False, dilation=[1, 1, 1, 1], sn=False):
     with tf.variable_scope(scope):
         l = layer
 
@@ -201,20 +209,23 @@ def add_residual_layer(layer, filter_dims, act_func=tf.nn.relu, scope='residual_
             l = batch_norm_conv(l, b_train=bn_phaze, scope='bn')
 
         l = act_func(l)
-        l = conv(l, scope='conv', filter_dims=filter_dims, stride_dims=[1, 1], dilation=dilation, non_linear_fn=act_func, bias=use_bias)
+        l = conv(l, scope='conv', filter_dims=filter_dims, stride_dims=[1, 1],
+                 dilation=dilation, non_linear_fn=act_func, bias=use_bias, sn=sn)
 
     return l
 
 
 def add_dense_transition_layer(layer, filter_dims, stride_dims=[1, 1], act_func=tf.nn.relu, scope='transition',
-                               use_bn=True, bn_phaze=False, use_pool=True, use_bias=False, dilation=[1, 1, 1, 1]):
+                               use_bn=True, bn_phaze=False, use_pool=True, use_bias=False, sn=False):
     with tf.variable_scope(scope):
         if use_bn:
             l = batch_norm_conv(layer, b_train=bn_phaze, scope='bn')
+            l = act_func(l)
+        else:
+            l = act_func(layer)
 
-        l = act_func(l)
-        l = conv(l, scope='conv', filter_dims=filter_dims, stride_dims=stride_dims, non_linear_fn=None,
-                 bias=use_bias, dilation=dilation)
+        l = conv(l, scope='conv', filter_dims=filter_dims, stride_dims=stride_dims,
+                 non_linear_fn=None, bias=use_bias, sn=sn)
 
         if use_pool:
             l = tf.nn.max_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
@@ -240,8 +251,14 @@ def global_avg_pool(input_data, output_length=1, padding='VALID', scope='gloval_
             return pool
         else:
             if num_channels_in != output_length:
-                conv_weight = tf.Variable(tf.truncated_normal([1, 1, num_channels_in, output_length], stddev=0.1, dtype=tf.float32))
+                conv_weight = tf.get_variable('weight', shape=[1, 1, num_channels_in, output_length],
+                                              initializer=tf.truncated_normal_initializer(stddev=0.1))
+                conv_bias = tf.get_variable('bias', shape=[output_length], initializer=tf.zeros_initializer)
+
                 conv = tf.nn.conv2d(input_data, conv_weight, strides=[1, 1, 1, 1], padding='SAME')
+
+                conv = tf.nn.bias_add(conv, conv_bias)
+
                 pool = tf.nn.avg_pool(conv, ksize=[1, height, width, 1], strides=[1, 1, 1, 1], padding=padding)
             else:
                 pool = tf.nn.avg_pool(input_data, ksize=[1, height, width, 1], strides=[1, 1, 1, 1], padding=padding)
@@ -282,7 +299,7 @@ def get_deconv2d_output_dims(input_dims, filter_dims, stride_dims, padding):
     return [batch_size, out_h, out_w, num_channels_out]
 
 
-def deconv(input_data, b_size, scope, filter_dims, stride_dims, padding='SAME', non_linear_fn=tf.nn.relu):
+def deconv(input_data, b_size, scope, filter_dims, stride_dims, padding='SAME', non_linear_fn=tf.nn.relu, sn=False):
     input_dims = input_data.get_shape().as_list()
     # print(scope, 'in', input_dims)
     assert (len(input_dims) == 4)  # batch_size, height, width, num_channels_in
@@ -300,12 +317,17 @@ def deconv(input_data, b_size, scope, filter_dims, stride_dims, padding='SAME', 
                                            padding)
 
     with tf.variable_scope(scope):
-        deconv_weight = tf.Variable(
-            tf.random_normal([filter_h, filter_w, num_channels_out, num_channels_in], stddev=0.1, dtype=tf.float32))
+        deconv_weight = tf.get_variable('weight', shape=[filter_h, filter_w, num_channels_out, num_channels_in],
+                                       initializer=tf.random_normal_initializer(stddev=0.1))
 
-        deconv_bias = tf.Variable(tf.zeros([num_channels_out], dtype=tf.float32))
+        deconv_bias = tf.get_variable('bias', shape=[num_channels_out], initializer=tf.zeros_initializer)
 
-        map = tf.nn.conv2d_transpose(input_data, deconv_weight, output_dims, strides=[1, stride_h, stride_w, 1],
+        conv_filter = deconv_weight
+
+        if sn == True:
+            conv_filter = spectral_norm(deconv_weight)
+
+        map = tf.nn.conv2d_transpose(input_data, conv_filter, output_dims, strides=[1, stride_h, stride_w, 1],
                                      padding=padding)
 
         map = tf.nn.bias_add(map, deconv_bias)
@@ -335,11 +357,11 @@ def self_attention(x, channels, act_func=tf.nn.relu, scope='attention'):
         print('attention h dims: ' + str(h.get_shape().as_list()))
 
         # N = h * w
-        g = tf.reshape(g, shape=[-1, g.shape[1]*g.shape[2], g.get_shape().as_list()[-1]])
+        g = tf.reshape(g, shape=[g.shape[0], -1, g.shape[-1]])
 
         print('attention g flat dims: ' + str(g.get_shape().as_list()))
 
-        f = tf.reshape(f, shape=[-1, f.shape[1]*f.shape[2], f.shape[-1]])
+        f = tf.reshape(f, shape=[f.shape[0], -1, f.shape[-1]])
 
         print('attention f flat dims: ' + str(f.get_shape().as_list()))
 
@@ -349,7 +371,7 @@ def self_attention(x, channels, act_func=tf.nn.relu, scope='attention'):
 
         print('attention beta dims: ' + str(s.get_shape().as_list()))
 
-        h = tf.reshape(h, shape=[-1, h.shape[1]*h.shape[2], h.shape[-1]])
+        h = tf.reshape(h, shape=[h.shape[0], -1, h.shape[-1]])
 
         print('attention h flat dims: ' + str(h.get_shape().as_list()))
 
@@ -359,8 +381,39 @@ def self_attention(x, channels, act_func=tf.nn.relu, scope='attention'):
 
         gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
 
-        o = tf.reshape(o, shape=[-1, height, width, num_channels // 2])  # [bs, h, w, C]
+        o = tf.reshape(o, shape=[batch_size, height, width, num_channels // 2])  # [bs, h, w, C]
         o = conv(o, scope='attn_conv', filter_dims=[1, 1, channels], stride_dims=[1, 1], non_linear_fn=act_func)
         x = gamma * o + x
 
     return x
+
+
+def spectral_norm(w, iteration=1):
+    w_shape = w.shape.as_list()
+    w = tf.reshape(w, [-1, w_shape[-1]])
+
+    u = tf.get_variable("u", [1, w_shape[-1]], initializer=tf.random_normal_initializer(), trainable=False)
+
+    u_hat = u
+    v_hat = None
+    for i in range(iteration):
+        """
+        power iteration
+        Usually iteration = 1 will be enough
+        """
+        v_ = tf.matmul(u_hat, tf.transpose(w))
+        v_hat = tf.nn.l2_normalize(v_)
+
+        u_ = tf.matmul(v_hat, w)
+        u_hat = tf.nn.l2_normalize(u_)
+
+    u_hat = tf.stop_gradient(u_hat)
+    v_hat = tf.stop_gradient(v_hat)
+
+    sigma = tf.matmul(tf.matmul(v_hat, w), tf.transpose(u_hat))
+
+    with tf.control_dependencies([u.assign(u_hat)]):
+        w_norm = w / sigma
+        w_norm = tf.reshape(w_norm, w_shape)
+
+    return w_norm
