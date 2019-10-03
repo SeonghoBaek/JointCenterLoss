@@ -17,11 +17,12 @@ import pickle
 import shutil
 import alignment
 
-LAMBDA = 1e-2
+LAMBDA = 3e-2
 GAMMA = 1.0
+BETA = 1.0
 
 CENTER_LOSS_ALPHA = 1.0
-DISTANCE_MARGIN = 10.0
+DISTANCE_MARGIN = 30.0
 
 representation_dim = 256
 input_width = 96
@@ -32,7 +33,7 @@ num_patch = 4
 batch_size = 16
 test_size = 100
 num_class_per_group = 70
-num_epoch = 30
+num_epoch = 10
 
 # Network Parameters
 g_fc_layer1_dim = 1024
@@ -62,31 +63,35 @@ def get_center_loss(features, labels):
     with tf.variable_scope('center', reuse=tf.AUTO_REUSE):
         centers = tf.get_variable('centers', initializer=tf.random_normal_initializer)
 
-    len_features = features.get_shape()[1]
-
     labels = tf.reshape(labels, [-1])
     centers_batch = tf.gather(centers, labels)
 
-    loss = tf.reduce_mean(tf.reduce_sum((features - centers_batch) ** 2, [1]))
+    feature_distance = tf.reduce_mean(tf.sqrt(tf.reduce_sum((features - centers_batch) ** 2, [1])))
 
-    unique_labels, _ = tf.unique(labels)
-    reverse_labels = tf.reverse(unique_labels, [0])
+    shift_labels = tf.add(labels, 1) % num_class_per_group
+    shift_centers = tf.gather(centers, shift_labels)
+    center_distance = tf.reduce_mean(tf.sqrt(tf.reduce_sum((features - shift_centers) ** 2, [1])))
+
+    loss = tf.log(feature_distance + DISTANCE_MARGIN) - tf.log(center_distance)
+
+    #unique_labels, _ = tf.unique(labels)
+    #reverse_labels = tf.reverse(unique_labels, [0])
 
     # Center distance loss
-    unique_centers = tf.gather(centers, unique_labels)
-    shuffle_centers = tf.gather(centers, reverse_labels)
+    #unique_centers = tf.gather(centers, unique_labels)
+    #shuffle_centers = tf.gather(centers, reverse_labels)
 
-    distance = tf.reduce_mean(tf.reduce_sum((unique_centers - shuffle_centers) ** 2, [1]))
+    #distance = tf.reduce_mean(tf.reduce_sum(tf.abs(unique_centers - shuffle_centers), [1]))
 
-    distance_loss = DISTANCE_MARGIN / (1 + distance)
+    #distance_loss = DISTANCE_MARGIN / (1 + distance)
     #distance_loss = DISTANCE_MARGIN * (1.0 - tf.sigmoid(distance))
 
-    return loss * distance_loss, distance_loss
+    return tf.sigmoid(loss), feature_distance, center_distance
 
 
 def update_centers(features, labels, alpha):
     with tf.variable_scope('center', reuse=tf.AUTO_REUSE):
-        centers = tf.get_variable('centers', initializer=tf.random_normal_initializer)
+        centers = tf.get_variable('centers', initializer=tf.constant_initializer(0))
 
     labels = tf.reshape(labels, [-1])  # flatten
     centers_batch = tf.gather(centers, labels)  # Gather center tensor by labels value order
@@ -342,7 +347,7 @@ def add_residual_dense_block(in_layer, filter_dims, num_layers, act_func=tf.nn.r
 
 
 def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, bn_phaze=False, keep_prob=0.5):
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+   with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
         # if reuse:
         #    tf.get_variable_scope().reuse_variables()
 
@@ -373,6 +378,8 @@ def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, 
         l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
         #l = tf.nn.max_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
+        l = layers.self_attention(l, g_dense_block_depth)
+
         l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_2')
 
@@ -382,12 +389,10 @@ def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, 
         l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_3_1')
 
-        l = layers.self_attention(l, g_dense_block_depth)
+        #l = layers.self_attention(l, g_dense_block_depth)
 
         l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn2')
         l = act_func(l)
-
-        #l = layers.self_attention(l, g_dense_block_depth, act_func=act_func)
 
         l_share = l
 
@@ -463,7 +468,7 @@ def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, 
             scale_layer = act_func(scale_layer)
             last_dense_layer = act_func(last_dense_layer)
 
-    return last_dense_layer, scale_layer, l_share
+   return last_dense_layer, scale_layer, l_share
 
 
 def load_images_patch(filename, b_align=False):
@@ -670,7 +675,7 @@ def train(model_path):
             label = np.zeros(one_hot_length)
             label[idx] += 1
 
-            print('label:', labelname, label)
+            #print('label:', labelname, label)
 
             for idx2, img in enumerate(imgs_list):
                 if idx2 < len(imgs_list) * 0.8:
@@ -713,7 +718,7 @@ def train(model_path):
     cnn_representation, _, anchor_layer = encoder_network(X, bn_phaze=bn_train, activation='relu', scope='encoder')
     print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
-    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='encoder')
+    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
     print('CNN Representation Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
     representation = cnn_representation
@@ -721,7 +726,7 @@ def train(model_path):
     with tf.variable_scope('center', reuse=tf.AUTO_REUSE):
         centers = tf.get_variable('centers', [num_class_per_group, representation_dim],
                                   dtype=tf.float32,
-                                  initializer=tf.random_normal_initializer, trainable=False)
+                                  initializer=tf.constant_initializer(0), trainable=False)
 
     smoothing_factor = 0.1
     prob_threshold = 1 - smoothing_factor
@@ -735,7 +740,7 @@ def train(model_path):
     # [Batch, representation_dim]
     # representation = tf.nn.l2_normalize(representation, axis=1)
 
-    center_loss, center_distance_loss = get_center_loss(representation, tf.argmax(Y, 1))
+    center_loss, feature_distance, center_distance = get_center_loss(representation, tf.argmax(Y, 1))
     update_center = update_centers(representation, tf.argmax(Y, 1), CENTER_LOSS_ALPHA)
 
     prediction = layers.fc(representation, num_class_per_group, scope='g_fc_final_2')
@@ -755,8 +760,14 @@ def train(model_path):
     confidence_op = tf.nn.softmax(prediction)
 
     # Launch the graph in a session
+    config = tf.ConfigProto(allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
+
+    # Launch the graph in a session
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+
+        #print([n.name for n in tf.get_default_graph().as_graph_def().node if 'weight' in n.name])
 
         try:
             saver = tf.train.Saver()
@@ -774,8 +785,8 @@ def train(model_path):
 
             for start, end in training_batch:
 
-                _, c, center, cd, _ = sess.run(
-                    [c_optimizer, entropy_loss, center_loss, center_distance_loss, update_center],
+                _, c, center, fd, cd, _ = sess.run(
+                    [c_optimizer, entropy_loss, center_loss, feature_distance, center_distance, update_center],
                     feed_dict={X: trX[start:end], Y: trY[start:end], bn_train: True,
                                keep_prob: 0.5})
 
@@ -785,7 +796,8 @@ def train(model_path):
                     print('itr #' + str(num_itr))
                     print('  - entropy loss: ' + str(c))
                     print('  - center loss: ' + str(center))
-                    print('  - distance loss: ' + str(cd))
+                    print('  - feature distance: ' + str(fd))
+                    print('  - center distance: ' + str(cd))
 
             try:
                 saver.save(sess, model_path)
@@ -875,7 +887,7 @@ def test(model_path):
     cnn_representation, _, anchor_layer = encoder_network(X, bn_phaze=bn_train, activation='relu', scope='encoder')
     print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
-    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='encoder')
+    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
     print('CNN Representation Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
     representation = cnn_representation
@@ -897,7 +909,7 @@ def test(model_path):
     # [Batch, representation_dim]
     #representation = tf.nn.l2_normalize(representation, axis=1)
 
-    center_loss, center_distance_loss = get_center_loss(representation, tf.argmax(Y, 1))
+    center_loss, _, _ = get_center_loss(representation, tf.argmax(Y, 1))
     update_center = update_centers(representation, tf.argmax(Y, 1), CENTER_LOSS_ALPHA)
 
     prediction = layers.fc(representation, num_class_per_group, scope='g_fc_final_2')
@@ -910,8 +922,7 @@ def test(model_path):
             tf.losses.softmax_cross_entropy(onehot_labels=Y, logits=prediction))
 
     # class_loss = entropy_loss + center_loss * LAMBDA
-    center_full_loss = CENTER_LOSS_ALPHA * center_loss + center_distance_loss
-    class_loss = entropy_loss + center_full_loss * LAMBDA
+    class_loss = entropy_loss + center_loss * LAMBDA
 
     # training operation
     c_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(class_loss)
@@ -919,7 +930,11 @@ def test(model_path):
     confidence_op = tf.nn.softmax(prediction)
 
     # Launch the graph in a session
-    with tf.Session() as sess:
+    config = tf.ConfigProto(allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
+
+    # Launch the graph in a session
+    with tf.Session(config=config) as sess:
         sess.run(tf.global_variables_initializer())
 
         try:
@@ -1066,6 +1081,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_data', type=str, help='training data directory', default='input')
     parser.add_argument('--test_data', type=str, help='test data directory', default='./test_data')
     parser.add_argument('--label', type=str, help='training data directory', default='input')
+    parser.add_argument('--align', type=bool, help='use face alignment', default=False)
 
     args = parser.parse_args()
 
@@ -1107,7 +1123,7 @@ if __name__ == '__main__':
         cnn_representation, _, anchor_layer = encoder_network(X, bn_phaze=bn_train, activation='relu', scope='encoder')
         print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
-        cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='encoder')
+        cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
         print('CNN Representation Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
         representation = cnn_representation
@@ -1129,7 +1145,7 @@ if __name__ == '__main__':
         # [Batch, representation_dim]
         #representation = tf.nn.l2_normalize(representation, axis=1)
 
-        center_loss, center_distance_loss = get_center_loss(representation, tf.argmax(Y, 1))
+        center_loss, _, _ = get_center_loss(representation, tf.argmax(Y, 1))
         update_center = update_centers(representation, tf.argmax(Y, 1), CENTER_LOSS_ALPHA)
 
         prediction = layers.fc(representation, num_class_per_group, scope='g_fc_final_2')
@@ -1138,7 +1154,11 @@ if __name__ == '__main__':
         confidence_op = tf.nn.softmax(prediction)
 
         # Launch the graph in a session
-        with tf.Session() as sess:
+        config = tf.ConfigProto(allow_soft_placement=True)
+        config.gpu_options.allow_growth = True
+
+        # Launch the graph in a session
+        with tf.Session(config=config) as sess:
             sess.run(tf.global_variables_initializer())
 
             try:
@@ -1148,7 +1168,7 @@ if __name__ == '__main__':
             except:
                 print('Model load failed: ' + model_path)
 
-            b_align = False
+            b_align = args.align
 
             for idx, labelname in enumerate(os.listdir(test_data_dir)):
 
@@ -1180,6 +1200,6 @@ if __name__ == '__main__':
                         # cos = findCosineDistance(center, rep[0]) * 100
 
                         print(
-                            labelname + ', predict: ' + label_list[pred_id[0]] + ', ' + str(confidence[0][pred_id[0]]))
+                            labelname + '(' + f + '), predict: ' + label_list[pred_id[0]] + ', ' + str(confidence[0][pred_id[0]]))
 
                         #print(l)
