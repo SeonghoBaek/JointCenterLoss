@@ -673,9 +673,13 @@ def train(model_path):
             imgs_list = shuffle(imgs_list)
 
             label = np.zeros(one_hot_length)
-            label[idx] += 1
 
-            #print('label:', labelname, label)
+            if labelname == 'Unknown':
+                label += (1.0 / num_class_per_group)  # Uniform distribution for generated Unknown class
+            else:
+                label[idx] += 1
+
+            print('label:', labelname, label)
 
             for idx2, img in enumerate(imgs_list):
                 if idx2 < len(imgs_list) * 0.8:
