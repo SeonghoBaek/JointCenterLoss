@@ -52,7 +52,7 @@ dlibDetector = dlib.get_frontal_face_detector()
 align = alignment.AlignDlib('dlib/shape_predictor_68_face_landmarks.dat')
 
 with tf.device('/device:CPU:0'):
-    ANCHOR = tf.placeholder(tf.float32, [None, 24, 24, 128])
+    ANCHOR = tf.placeholder(tf.float32, [None, 24, 24, 256])
 
 bn_train = tf.placeholder(tf.bool)
 keep_prob = tf.placeholder(tf.float32)
@@ -125,32 +125,32 @@ def decoder_network(latent, anchor_layer=None, activation='swish', scope='g_deco
 
         print('deconv1:', str(l.get_shape().as_list()))
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth*4], num_layers=2,
                                      act_func=act_func, bn_phaze=bn_phaze, use_residual=False, scope='block_0')
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth*4], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True, scope='block_0_1')
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth*4], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True, scope='block_0_2')
 
         l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn1')
         l = act_func(l)
 
         # 12 x 12
-        l = layers.deconv(l, b_size=batch_size, scope='g_dec_conv2', filter_dims=[3, 3, g_dense_block_depth],
+        l = layers.deconv(l, b_size=batch_size, scope='g_dec_conv2', filter_dims=[3, 3, g_dense_block_depth * 3],
                              stride_dims=[2, 2], padding='SAME', non_linear_fn=act_func)
         print('deconv2:', str(l.get_shape().as_list()))
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True,
                                scope='block_1', use_dilation=True)
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True,
                                scope='block_1_1', use_dilation=True)
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True,
                                scope='block_1_2', use_dilation=True)
 
@@ -158,19 +158,19 @@ def decoder_network(latent, anchor_layer=None, activation='swish', scope='g_deco
         l = act_func(l)
 
         # 24 x 24
-        l = layers.deconv(l, b_size=batch_size, scope='g_dec_conv3', filter_dims=[3, 3, g_dense_block_depth],
+        l = layers.deconv(l, b_size=batch_size, scope='g_dec_conv3', filter_dims=[3, 3, g_dense_block_depth * 2],
                              stride_dims=[2, 2], padding='SAME', non_linear_fn=act_func)
         print('deconv3:', str(l.get_shape().as_list()))
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True,
                                scope='block_2', use_dilation=True)
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True,
                                scope='block_2_1', use_dilation=True)
 
-        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
                                act_func=act_func, bn_phaze=bn_phaze, use_residual=True,
                                scope='block_2_2', use_dilation=True)
 
@@ -247,17 +247,23 @@ def discriminator(input_data, activation='swish', scope='ldiscriminator', reuse=
 
         l = tf.reshape(input_data, shape=[-1, 4, 4, 8])
 
-        l = layers.conv(l, scope='conv1', filter_dims=[3, 3, g_dense_block_depth/2], stride_dims=[1, 1],
+        l = layers.conv(l, scope='conv1', filter_dims=[3, 3, g_dense_block_depth], stride_dims=[1, 1],
                         non_linear_fn=None, bias=False)
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth/2], num_layers=3,
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_0')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth/2], num_layers=3,
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_1')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth/2], num_layers=3,
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_2')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=3,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_3')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=3,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_4')
 
         l = layers.global_avg_pool(l, representation_dim)
         dc_final_layer = l
@@ -316,7 +322,7 @@ def add_residual_dense_block(in_layer, filter_dims, num_layers, act_func=tf.nn.r
 
 def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, bn_phaze=False, keep_prob=0.5):
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-        #if reuse:
+        # if reuse:
         #    tf.get_variable_scope().reuse_variables()
 
         if activation == 'swish':
@@ -328,37 +334,57 @@ def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, 
 
         # [96 x 96]
         l = layers.conv(x, scope='conv1', filter_dims=[3, 3, g_dense_block_depth], stride_dims=[1, 1],
-                        dilation=[1, 2, 2, 1], non_linear_fn=None, bias=False)
+                        non_linear_fn=None, bias=False, dilation=[1, 1, 1, 1])
 
         l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_0', use_dilation=True)
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_0')
 
         l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_1', use_dilation=True)
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_1')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_1_1')
 
         l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn1')
         l = act_func(l)
 
         # [48 x 48]
         l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        # l = tf.nn.max_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+
+        l = layers.self_attention(l, g_dense_block_depth)
 
         l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_2', use_dilation=True)
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_2')
 
         l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_3', use_dilation=True)
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_3')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_3_1')
 
         l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn2')
         l = act_func(l)
 
         # [24 x 24]
         l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        # l = tf.nn.max_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        #l = layers.self_attention(l, g_dense_block_depth)
+
+        l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 2],
+                                              act_func=act_func,
+                                              scope='dense_transition_24', bn_phaze=bn_phaze,
+                                              use_pool=False)
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_4')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_5')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=3,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_5_1')
 
         l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn3')
         l = act_func(l)
@@ -367,24 +393,42 @@ def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, 
 
         # [12 x 12]
         l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        # l = tf.nn.max_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 3],
+                                              act_func=act_func,
+                                              scope='dense_transition_12', bn_phaze=bn_phaze,
+                                              use_pool=False)
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_6')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_7')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=3,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_7_1')
 
         l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn4')
         l = act_func(l)
-        
+
         # [6 x 6]
         l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        # l = tf.nn.max_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 4],
+                                              act_func=act_func,
+                                              scope='dense_transition_6', bn_phaze=bn_phaze,
+                                              use_pool=False)
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_8')
 
-        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=3,
                                      act_func=act_func, bn_phaze=bn_phaze, scope='block_9')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=3,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_10')
 
         with tf.variable_scope('dense_block_last'):
             scale_layer = layers.add_dense_transition_layer(l, filter_dims=[1, 1, representation_dim],
@@ -557,9 +601,9 @@ def get_residual_loss(value, target, type='l1', gamma=1.0):
         eps = 1e-10
         loss = tf.reduce_mean(-1 * target * tf.log(value + eps) - 1 * (1 - target) * tf.log(1 - value + eps))
     elif type == 'l1':
-        loss = tf.reduce_mean(tf.abs(tf.subtract(target, value)))
+        loss = tf.reduce_mean(tf.reduce_sum(tf.abs(tf.subtract(target, value)), [1]))
     elif type == 'l2':
-        loss = tf.reduce_mean(tf.square(tf.subtract(target, value)))
+        loss = tf.reduce_mean(tf.reduce_sum(tf.square(tf.subtract(target, value)), [1]))
 
     loss = gamma * loss
 
@@ -624,24 +668,24 @@ def train(model_path):
     X = tf.placeholder(tf.float32, [None, input_height, input_width, num_channel])
 
     # Network setup
-    cnn_representation, _, anchor_layer = encoder_network(X, activation='swish', bn_phaze=bn_train, scope='encoder')
+    cnn_representation, _, anchor_layer = encoder_network(X, activation='relu', bn_phaze=bn_train, scope='encoder')
     print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
-    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='encoder')
+    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
     print('CNN Representation Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
     latent_fake = cnn_representation
 
     with tf.device('/device:GPU:1'):
         latent_real = make_multi_modal_noise(num_mode=8)
-        X_fake = decoder_network(latent=cnn_representation, anchor_layer=None, activation='swish', scope='decoder', bn_phaze=bn_train)
+        X_fake = decoder_network(latent=cnn_representation, anchor_layer=None, activation='relu', scope='decoder', bn_phaze=bn_train)
 
-        p_feature, p_logit, p_prob = discriminator(latent_real, activation='swish', scope='discriminator', bn_phaze=bn_train)
-        n_feature, n_logit, n_prob = discriminator(latent_fake, activation='swish', scope='discriminator', bn_phaze=bn_train)
+        p_feature, p_logit, p_prob = discriminator(latent_real, activation='relu', scope='discriminator', bn_phaze=bn_train)
+        n_feature, n_logit, n_prob = discriminator(latent_fake, activation='relu', scope='discriminator', bn_phaze=bn_train)
 
     # Trainable variable lists
     d_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
-    encoder_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='encoder')
+    encoder_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='encoder') + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='gap')
     decoder_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='decoder')
 
     generator_vars = encoder_var + decoder_var
@@ -773,10 +817,10 @@ def test(model_path, test_image_dir):
     # Network setup
     X = tf.placeholder(tf.float32, [None, input_height, input_width, num_channel])
 
-    cnn_representation, _, anchor_layer = encoder_network(X, activation='swish', bn_phaze=bn_train, scope='encoder')
+    cnn_representation, _, anchor_layer = encoder_network(X, activation='relu', bn_phaze=bn_train, scope='encoder')
     print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
-    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='encoder')
+    cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
     print('CNN Representation Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
     latent_fake = cnn_representation
@@ -784,17 +828,17 @@ def test(model_path, test_image_dir):
     with tf.device('/device:GPU:1'):
         # decoder_input = make_multi_modal_noise(representation, num_mode=8)
         latent_real = make_multi_modal_noise(num_mode=8)
-        X_fake = decoder_network(latent=cnn_representation, anchor_layer=None, activation='swish', scope='decoder',
+        X_fake = decoder_network(latent=cnn_representation, anchor_layer=None, activation='relu', scope='decoder',
                                  bn_phaze=bn_train)
 
-    p_feature, p_logit, p_prob = discriminator(latent_real, activation='relu', scope='discriminator',
+    p_feature, p_logit, p_prob = discriminator(latent_real, activation='swish', scope='discriminator',
                                                       bn_phaze=bn_train)
-    n_feature, n_logit, n_prob = discriminator(latent_fake, activation='relu', scope='discriminator',
+    n_feature, n_logit, n_prob = discriminator(latent_fake, activation='swish', scope='discriminator',
                                                       bn_phaze=bn_train)
 
     # Trainable variable lists
     d_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
-    encoder_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='encoder')
+    encoder_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='encoder') + tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='gap')
     decoder_var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='decoder')
 
     generator_vars = encoder_var + decoder_var
