@@ -5,6 +5,8 @@ Fine Face Discrimination Network
 - JointCenterLoss.py
   - Custom Intra Class Discrimination Network
   - Joint Loss: Cross Entropy Loss with Class Center Loss & Center Distance Loss
+  - Network
+    - ResDense Block: ResNet + DenseNet
  
 - FDN.py
   - Effective Unknown Class Generation Network
