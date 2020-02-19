@@ -330,7 +330,7 @@ def deconv(input_data, b_size, scope, filter_dims, stride_dims, padding='SAME', 
         deconv_weight = tf.get_variable('deconv_weight', shape=[filter_h, filter_w, num_channels_out, num_channels_in],
                                        initializer=tf.random_normal_initializer(stddev=0.1))
 
-        #deconv_bias = tf.get_variable('deconv_bias', shape=[num_channels_out], initializer=tf.zeros_initializer)
+        deconv_bias = tf.get_variable('deconv_bias', shape=[num_channels_out], initializer=tf.zeros_initializer)
 
         conv_filter = deconv_weight
 
@@ -340,13 +340,12 @@ def deconv(input_data, b_size, scope, filter_dims, stride_dims, padding='SAME', 
         map = tf.nn.conv2d_transpose(input_data, conv_filter, output_dims, strides=[1, stride_h, stride_w, 1],
                                      padding=padding)
 
-        #map = tf.nn.bias_add(map, deconv_bias)
+        map = tf.nn.bias_add(map, deconv_bias)
 
-        if non_linear_fn is not None:
-            map = non_linear_fn(map)
+        activation = non_linear_fn(map)
 
         # print(scope, 'out', activation.get_shape().as_list())
-        return map
+        return activation
 
 
 def self_attention(x, channels, act_func=tf.nn.relu, scope='attention'):
