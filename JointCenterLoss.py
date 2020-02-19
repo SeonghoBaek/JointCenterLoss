@@ -34,7 +34,7 @@ num_patch = 4
 batch_size = 16
 test_size = 100
 num_class_per_group = 70
-num_epoch = 20
+num_epoch = 30
 
 # Network Parameters
 g_fc_layer1_dim = 1024
@@ -333,8 +333,11 @@ def add_residual_dense_block(in_layer, filter_dims, num_layers, act_func=tf.nn.r
         if use_dilation == True:
             dilation = [1, 2, 2, 1]
 
+        layers.conv(l, scope='bt_conv', filter_dims=[1, 1, num_channel_out / 4], stride_dims=[1, 1], dilation=[1, 1, 1, 1],
+                    non_linear_fn=None, bias=False, sn=False)
+
         for i in range(num_layers):
-            l = layers.add_dense_layer(l, filter_dims=filter_dims, act_func=act_func, bn_phaze=bn_phaze,
+            l = layers.add_dense_layer(l, filter_dims=[filter_dims[0], filter_dims[1], num_channel_out / 4], act_func=act_func, bn_phaze=bn_phaze,
                                        scope='layer' + str(i), dilation=dilation)
 
         l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, num_channel_out], act_func=act_func,
@@ -355,200 +358,243 @@ def add_residual_dense_block(in_layer, filter_dims, num_layers, act_func=tf.nn.r
     return tf.add(l, in_layer)
 
 
+def phaze1_network(x, activation='relu', scope='phaze1_network', bn_phaze=False):
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+        if activation == 'swish':
+            act_func = util.swish
+        elif activation == 'relu':
+            act_func = tf.nn.relu
+        elif activation == 'lrelu':
+            act_func = tf.nn.leaky_relu
+        else:
+            act_func = tf.nn.sigmoid
+
+        # [96 x 96]
+        l = layers.conv(x, scope='conv1', filter_dims=[3, 3, g_dense_block_depth], stride_dims=[1, 1],
+                        non_linear_fn=None, bias=False, dilation=[1, 1, 1, 1])
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_0')
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_1',
+                                     stochastic_depth=False, stochastic_survive=0.95)
+
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                     act_func=act_func, bn_phaze=bn_phaze, scope='block_1_1',
+                                     stochastic_depth=False, stochastic_survive=0.9)
+
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn1')
+        l = act_func(l)
+
+    return l
+
+
+def phaze2_network(x, activation='relu', scope='phaze2_network', bn_phaze=False):
+    return
+
+
+def phaze3_network(x, activation='relu', scope='phaze3_network', bn_phaze=False):
+    return
+
+
+def phaze4_network(x, activation='relu', scope='phaze4_network', bn_phaze=False):
+    return
+
+
 def encoder_network(x, activation='relu', scope='encoder_network', reuse=False, bn_phaze=False, keep_prob=0.5):
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-        with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-            # if reuse:
-            #    tf.get_variable_scope().reuse_variables()
+        # if reuse:
+        #    tf.get_variable_scope().reuse_variables()
 
-            if activation == 'swish':
-                act_func = util.swish
-            elif activation == 'relu':
-                act_func = tf.nn.relu
-            elif activation == 'lrelu':
-                act_func = tf.nn.leaky_relu
-            else:
-                act_func = tf.nn.sigmoid
+        if activation == 'swish':
+            act_func = util.swish
+        elif activation == 'relu':
+            act_func = tf.nn.relu
+        elif activation == 'lrelu':
+            act_func = tf.nn.leaky_relu
+        else:
+            act_func = tf.nn.sigmoid
 
-            # [96 x 96]
-            l = layers.conv(x, scope='conv1', filter_dims=[3, 3, g_dense_block_depth], stride_dims=[1, 1],
-                            non_linear_fn=None, bias=False, dilation=[1, 1, 1, 1])
+        # [96 x 96]
+        l = layers.conv(x, scope='conv1', filter_dims=[3, 3, g_dense_block_depth], stride_dims=[1, 1],
+                        non_linear_fn=None, bias=False, dilation=[1, 1, 1, 1])
 
-            '''
-            for i in range(5):
-                l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                   act_func=act_func, bn_phaze=bn_phaze,
-                                   scope='block1_' + str(i), use_dilation=False)
+        '''
+        for i in range(5):
+            l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                               act_func=act_func, bn_phaze=bn_phaze,
+                               scope='block1_' + str(i), use_dilation=False)
 
-            # [48 x 48]
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn1')
-            l = act_func(l)
-            l = layers.conv(l, scope='conv2', filter_dims=[3, 3, g_dense_block_depth * 2], stride_dims=[2, 2],
-                                non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
+        # [48 x 48]
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn1')
+        l = act_func(l)
+        l = layers.conv(l, scope='conv2', filter_dims=[3, 3, g_dense_block_depth * 2], stride_dims=[2, 2],
+                            non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
 
-            for i in range(5):
-                l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
-                                   act_func=act_func, bn_phaze=bn_phaze,
-                                   scope='block2_' + str(i), use_dilation=False)
+        for i in range(5):
+            l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
+                               act_func=act_func, bn_phaze=bn_phaze,
+                               scope='block2_' + str(i), use_dilation=False)
 
-            # [24 x 24]
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn2')
-            l = act_func(l)
-            l = layers.conv(l, scope='conv3', filter_dims=[3, 3, g_dense_block_depth * 3], stride_dims=[2, 2],
-                                non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
+        # [24 x 24]
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn2')
+        l = act_func(l)
+        l = layers.conv(l, scope='conv3', filter_dims=[3, 3, g_dense_block_depth * 3], stride_dims=[2, 2],
+                            non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
 
-            l_share = l
+        l_share = l
 
-            for i in range(5):
-                l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
-                                   act_func=act_func, bn_phaze=bn_phaze,
-                                   scope='block3_' + str(i), use_dilation=False)
+        for i in range(5):
+            l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
+                               act_func=act_func, bn_phaze=bn_phaze,
+                               scope='block3_' + str(i), use_dilation=False)
 
-            # [12 x 12]
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn3')
-            l = act_func(l)
-            l = layers.conv(l, scope='conv4', filter_dims=[3, 3, g_dense_block_depth * 4], stride_dims=[2, 2],
-                                non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
+        # [12 x 12]
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn3')
+        l = act_func(l)
+        l = layers.conv(l, scope='conv4', filter_dims=[3, 3, g_dense_block_depth * 4], stride_dims=[2, 2],
+                            non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
 
-            for i in range(5):
-                l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
-                                   act_func=act_func, bn_phaze=bn_phaze,
-                                   scope='block4_' + str(i), use_dilation=False)
+        for i in range(5):
+            l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
+                               act_func=act_func, bn_phaze=bn_phaze,
+                               scope='block4_' + str(i), use_dilation=False)
 
-            # [6 x 6]
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn4')
-            l = act_func(l)
-            l = layers.conv(l, scope='conv5', filter_dims=[3, 3, g_dense_block_depth * 4], stride_dims=[2, 2],
-                                non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
+        # [6 x 6]
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn4')
+        l = act_func(l)
+        l = layers.conv(l, scope='conv5', filter_dims=[3, 3, g_dense_block_depth * 4], stride_dims=[2, 2],
+                            non_linear_fn=act_func, bias=False, dilation=[1, 1, 1, 1])
 
-            for i in range(5):
-                l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
-                                   act_func=act_func, bn_phaze=bn_phaze,
-                                   scope='block_5' + str(i), use_dilation=True)
+        for i in range(5):
+            l = add_residual_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
+                               act_func=act_func, bn_phaze=bn_phaze,
+                               scope='block_5' + str(i), use_dilation=True)
 
-            '''
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_0')
+        '''
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_0')
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_1',
-                                        stochastic_depth=False, stochastic_survive=0.95)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_1',
+                                    stochastic_depth=False, stochastic_survive=0.95)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_1_1',
-                                        stochastic_depth=False, stochastic_survive=0.9)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_1_1',
+                                    stochastic_depth=False, stochastic_survive=0.9)
 
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn1')
-            l = act_func(l)
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn1')
+        l = act_func(l)
 
-            # [48 x 48]
-            # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
-            l = layers.conv(l, scope='conv2', filter_dims=[3, 3, g_dense_block_depth], stride_dims=[2, 2],
-                           non_linear_fn=act_func, bias=False, dilation=[1, 2, 2, 1])
+        # [48 x 48]
+        # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        l = layers.conv(l, scope='conv2', filter_dims=[3, 3, g_dense_block_depth], stride_dims=[2, 2],
+                       non_linear_fn=act_func, bias=False, dilation=[1, 2, 2, 1])
 
-            #l = layers.self_attention(l, g_dense_block_depth)
+        l = layers.self_attention(l, g_dense_block_depth)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_2',
-                                        stochastic_depth=False, stochastic_survive=0.85)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_2',
+                                    stochastic_depth=False, stochastic_survive=0.85)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_3',
-                                        stochastic_depth=False, stochastic_survive=0.8)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_3',
+                                    stochastic_depth=False, stochastic_survive=0.8)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_3_1',
-                                        stochastic_depth=False, stochastic_survive=0.75)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_3_1',
+                                    stochastic_depth=False, stochastic_survive=0.75)
 
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn2')
-            l = act_func(l)
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn2')
+        l = act_func(l)
 
-            l_share = l
+        l_share = l
 
-            # [24 x 24]
-            # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
-            l = layers.conv(l, scope='conv3', filter_dims=[3, 3, g_dense_block_depth * 2], stride_dims=[2, 2],
-                           non_linear_fn=None, bias=False, dilation=[1, 2, 2, 1])
+        # [24 x 24]
+        # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        l = layers.conv(l, scope='conv3', filter_dims=[3, 3, g_dense_block_depth * 2], stride_dims=[2, 2],
+                       non_linear_fn=None, bias=False, dilation=[1, 1, 1, 1])
 
-            l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 2],
-                                                 act_func=act_func,
-                                                 scope='dense_transition_24', bn_phaze=bn_phaze,
-                                                 use_pool=False)
+        l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 2],
+                                             act_func=act_func,
+                                             scope='dense_transition_24', bn_phaze=bn_phaze,
+                                             use_pool=False)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_4',
-                                        stochastic_depth=False, stochastic_survive=0.7)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_4',
+                                    stochastic_depth=False, stochastic_survive=0.7)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_5',
-                                        stochastic_depth=False, stochastic_survive=0.65)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_5',
+                                    stochastic_depth=False, stochastic_survive=0.65)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_5_1',
-                                        stochastic_depth=False, stochastic_survive=0.6)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 2], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_5_1',
+                                    stochastic_depth=False, stochastic_survive=0.6)
 
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn3')
-            l = act_func(l)
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn3')
+        l = act_func(l)
 
-            # [12 x 12]
-            # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
-            l = layers.conv(l, scope='conv4', filter_dims=[3, 3, g_dense_block_depth * 3], stride_dims=[2, 2],
-                           non_linear_fn=None, bias=False, dilation=[1, 2, 2, 1])
+        # [12 x 12]
+        # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        l = layers.conv(l, scope='conv4', filter_dims=[3, 3, g_dense_block_depth * 3], stride_dims=[2, 2],
+                       non_linear_fn=None, bias=False, dilation=[1, 1, 1, 1])
 
-            l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 3],
-                                                 act_func=act_func,
-                                                 scope='dense_transition_12', bn_phaze=bn_phaze,
-                                                 use_pool=False)
+        l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 3],
+                                             act_func=act_func,
+                                             scope='dense_transition_12', bn_phaze=bn_phaze,
+                                             use_pool=False)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_6',
-                                        stochastic_depth=False, stochastic_survive=0.6)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_6',
+                                    stochastic_depth=False, stochastic_survive=0.6)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_7',
-                                        stochastic_depth=False, stochastic_survive=0.6)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_7',
+                                    stochastic_depth=False, stochastic_survive=0.6)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_7_1',
-                                        stochastic_depth=False, stochastic_survive=0.6)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 3], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_7_1',
+                                    stochastic_depth=False, stochastic_survive=0.6)
 
-            l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn4')
-            l = act_func(l)
+        l = layers.batch_norm_conv(l, b_train=bn_phaze, scope='bn4')
+        l = act_func(l)
 
-            # [6 x 6]
-            # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
-            l = layers.conv(l, scope='conv5', filter_dims=[3, 3, g_dense_block_depth * 4], stride_dims=[2, 2],
-                           non_linear_fn=None, bias=False, dilation=[1, 2, 2, 1])
+        # [6 x 6]
+        # l = tf.nn.avg_pool(l, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        l = layers.conv(l, scope='conv5', filter_dims=[3, 3, g_dense_block_depth * 4], stride_dims=[2, 2],
+                       non_linear_fn=None, bias=False, dilation=[1, 1, 1, 1])
 
-            l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 4],
-                                                 act_func=act_func,
-                                                 scope='dense_transition_6', bn_phaze=bn_phaze,
-                                                 use_pool=False)
+        l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, g_dense_block_depth * 4],
+                                             act_func=act_func,
+                                             scope='dense_transition_6', bn_phaze=bn_phaze,
+                                             use_pool=False)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_8',
-                                        stochastic_depth=False, stochastic_survive=0.5)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_8',
+                                    stochastic_depth=False, stochastic_survive=0.5)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_9',
-                                        stochastic_depth=True, stochastic_survive=0.5)
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_9',
+                                    stochastic_depth=True, stochastic_survive=0.5)
 
-            l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
-                                        act_func=act_func, bn_phaze=bn_phaze, scope='block_10')
+        l = add_residual_dense_block(l, filter_dims=[3, 3, g_dense_block_depth * 4], num_layers=2,
+                                    act_func=act_func, bn_phaze=bn_phaze, scope='block_10')
 
-            with tf.variable_scope('dense_block_last'):
-                scale_layer = layers.add_dense_transition_layer(l, filter_dims=[1, 1, representation_dim],
-                                                                act_func=act_func,
-                                                                scope='dense_transition_1', bn_phaze=bn_phaze,
-                                                                use_pool=False)
-                last_dense_layer = layers.add_dense_transition_layer(l, filter_dims=[1, 1, representation_dim],
-                                                                     act_func=act_func,
-                                                                     scope='dense_transition_2', bn_phaze=bn_phaze,
-                                                                     use_pool=False)
-                scale_layer = act_func(scale_layer)
-                last_dense_layer = act_func(last_dense_layer)
+        with tf.variable_scope('dense_block_last'):
+            scale_layer = layers.add_dense_transition_layer(l, filter_dims=[1, 1, representation_dim],
+                                                            act_func=act_func,
+                                                            scope='dense_transition_1', bn_phaze=bn_phaze,
+                                                            use_pool=False)
+            last_dense_layer = layers.add_dense_transition_layer(l, filter_dims=[1, 1, representation_dim],
+                                                                 act_func=act_func,
+                                                                 scope='dense_transition_2', bn_phaze=bn_phaze,
+                                                                 use_pool=False)
+            scale_layer = act_func(scale_layer)
+            last_dense_layer = act_func(last_dense_layer)
 
-        return last_dense_layer, scale_layer, l_share
+    return last_dense_layer, scale_layer, l_share
 
 
 def load_images_patch(filename, b_align=False):
@@ -629,12 +675,12 @@ def load_images_from_folder(folder, use_augmentation=False):
 
             if use_augmentation == True:
                 img = cv2.resize(img, dsize=(scale_size, scale_size), interpolation=cv2.INTER_CUBIC)
-                grey_img = cv2.resize(grey_img, dsize=(scale_size, scale_size), interpolation=cv2.INTER_CUBIC)
+                #grey_img = cv2.resize(grey_img, dsize=(scale_size, scale_size), interpolation=cv2.INTER_CUBIC)
 
                 dy = np.random.random_integers(low=1, high=img.shape[0] - input_height, size=num_patch - 1)
                 dx = np.random.random_integers(low=1, high=img.shape[1] - input_width, size=num_patch - 1)
 
-                window = zip(dy, dx)
+                window = list(zip(dy, dx))
 
                 for i in range(len(window)):
                     croped = img[window[i][0]:window[i][0] + input_height,
@@ -644,20 +690,27 @@ def load_images_from_folder(folder, use_augmentation=False):
                     images.append(n_croped)
 
                     croped = cv2.flip(croped, 1)
+
+                    croped = croped + np.random.normal(size=(input_height, input_width, num_channel))
+                    
+                    croped[croped > 255.0] = 255.0
+                    croped[croped < 0] = 0.0
+
                     croped = croped / 255.0
                     images.append(croped)
 
-                    croped_grey = grey_img[window[i][0]:window[i][0] + input_height,
-                                  window[i][1]:window[i][1] + input_width].copy()
+                    #croped_grey = grey_img[window[i][0]:window[i][0] + input_height,
+                    #              window[i][1]:window[i][1] + input_width].copy()
 
-                    lstm_image = croped_grey / 255.0
-                    lstm_images.append(lstm_image)
+                    #lstm_image = croped_grey / 255.0
+                    #lstm_images.append(lstm_image)
 
-                    croped_grey = cv2.flip(croped_grey, 1)
-                    lstm_image = croped_grey / 255.0
-                    lstm_images.append(lstm_image)
+                    #croped_grey = cv2.flip(croped_grey, 1)
+                    #lstm_image = croped_grey / 255.0
+                    #lstm_images.append(lstm_image)
 
-    return np.array(images), np.array(lstm_images)
+    #return np.array(images), np.array(lstm_images)
+    return np.array(images)
 
 
 def get_align_image(img_file_path):
@@ -734,6 +787,30 @@ def make_multi_modal_noise(input, num_mode=8):
     return feature
 
 
+def softmax_cross_entropy_with_temperature(label, logit, temperature):
+    logit = logit / temperature
+    a = tf.exp(logit)
+    s = tf.reduce_sum(a, axis=1)
+    s = tf.expand_dims(s, axis=-1)
+    sm = tf.divide(a, s)
+    eps = 1e-10
+
+    rs = -tf.reduce_sum(label * tf.log(sm + eps) + (1 - label) * tf.log(1 - sm + eps), reduction_indices=1)
+    loss = tf.reduce_mean(rs)
+
+    return loss
+
+
+def softmax_with_temperature(logit, temperature):
+    logit = logit / temperature
+    a = tf.exp(logit)
+    s = tf.reduce_sum(a, axis=1)
+    s = tf.expand_dims(s, axis=-1)
+    sm = tf.divide(a, s)
+
+    return sm
+
+
 def train(model_path):
     trX = []
     trY = []
@@ -751,20 +828,27 @@ def train(model_path):
         Y = tf.placeholder(tf.float32, [None, num_class_per_group])
 
         for idx, labelname in enumerate(dir_list):
-            imgs_list, _ = load_images_from_folder(os.path.join(imgs_dirname, labelname), use_augmentation=True)
+            imgs_list = load_images_from_folder(os.path.join(imgs_dirname, labelname), use_augmentation=True)
             imgs_list = shuffle(imgs_list)
 
             label = np.zeros(one_hot_length)
 
             if labelname == 'Unknown':
-                label += (1.0 / num_class_per_group)  # Uniform distribution for generated Unknown class
+                label += (1.0 / num_class_per_group)
+                #label += (0.5 / (num_class_per_group-1))
+                #label[idx] = 0.5
+                print('label:', labelname, label)
             else:
                 label[idx] += 1
 
-            print('label:', labelname, label)
+            #print('label:', labelname, label)
 
             for idx2, img in enumerate(imgs_list):
                 if idx2 < len(imgs_list) * 0.8:
+                    #if labelname == 'Unknown':
+                    #    label = np.random.uniform(low=0.3, high=0.7, size=one_hot_length)
+                        #print('unknown label:', label)
+
                     trY.append(label)
 
                     '''
@@ -814,7 +898,7 @@ def train(model_path):
                                   dtype=tf.float32,
                                   initializer=tf.constant_initializer(0), trainable=False)
 
-    smoothing_factor = 0.1
+    smoothing_factor = 0.0
     prob_threshold = 1 - smoothing_factor
 
     # L2 Softmax
@@ -831,17 +915,21 @@ def train(model_path):
 
     prediction = layers.fc(representation, num_class_per_group, scope='g_fc_final_2')
 
+    softmax_temprature = 1.0
+
     if smoothing_factor > 0:
-        entropy_loss = tf.reduce_mean(
-            tf.losses.softmax_cross_entropy(onehot_labels=Y, logits=prediction, label_smoothing=smoothing_factor))
+        #entropy_loss = tf.reduce_mean(
+        #    tf.losses.softmax_cross_entropy(onehot_labels=Y, logits=prediction, label_smoothing=smoothing_factor))
+        entropy_loss = softmax_cross_entropy_with_temperature(Y, prediction, 0.07)
     else:
         entropy_loss = tf.reduce_mean(
-            tf.losses.softmax_cross_entropy(onehot_labels=Y, logits=prediction))
+            tf.losses.softmax_cross_entropy(onehot_labels=Y, logits=(prediction / softmax_temprature)))
+        #entropy_loss = softmax_cross_entropy_with_temperature(Y, prediction, 0.07)
 
     class_loss = entropy_loss + center_loss
 
     # training operation
-    c_optimizer = tf.train.AdamOptimizer(learning_rate=2e-4, beta1=0.5).minimize(class_loss)
+    c_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5).minimize(class_loss)
     predict_op = tf.argmax(tf.nn.softmax(prediction), 1)
     confidence_op = tf.nn.softmax(prediction)
 
@@ -852,7 +940,7 @@ def train(model_path):
     # Launch the graph in a session
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-
+        
         # print([n.name for n in tf.get_default_graph().as_graph_def().node if 'weight' in n.name])
 
         try:
@@ -1216,9 +1304,9 @@ if __name__ == '__main__':
         with tf.variable_scope('center', reuse=tf.AUTO_REUSE):
             centers = tf.get_variable('centers', [num_class_per_group, representation_dim],
                                       dtype=tf.float32,
-                                      initializer=tf.random_normal_initializer, trainable=False)
+                                      initializer=tf.constant_initializer(0), trainable=False)
 
-        smoothing_factor = 0.1
+        smoothing_factor = 0.0
         prob_threshold = 1 - smoothing_factor
 
         # L2 Softmax
@@ -1230,11 +1318,24 @@ if __name__ == '__main__':
         # [Batch, representation_dim]
         # representation = tf.nn.l2_normalize(representation, axis=1)
 
-        center_loss, _, _ = get_center_loss(representation, tf.argmax(Y, 1))
+        center_loss, feature_distance, center_distance = get_center_loss(representation, tf.argmax(Y, 1))
         update_center = update_centers(representation, tf.argmax(Y, 1), CENTER_LOSS_ALPHA)
 
         prediction = layers.fc(representation, num_class_per_group, scope='g_fc_final_2')
 
+        if smoothing_factor > 0:
+            # entropy_loss = tf.reduce_mean(
+            #    tf.losses.softmax_cross_entropy(onehot_labels=Y, logits=prediction, label_smoothing=smoothing_factor))
+            entropy_loss = softmax_cross_entropy_with_temperature(Y, prediction, 1.1)
+        else:
+            # entropy_loss = tf.reduce_mean(
+            #    tf.losses.softmax_cross_entropy(onehot_labels=Y, logits=prediction))
+            entropy_loss = softmax_cross_entropy_with_temperature(Y, prediction, 1.1)
+
+        class_loss = entropy_loss + center_loss
+
+        # training operation
+        c_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5).minimize(class_loss)
         predict_op = tf.argmax(tf.nn.softmax(prediction), 1)
         confidence_op = tf.nn.softmax(prediction)
 
