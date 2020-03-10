@@ -296,7 +296,7 @@ def discriminator(input_data, activation='swish', scope='discriminator', reuse=F
     return dc_final_layer, dc_output, tf.sigmoid(dc_output)
 
 
-def add_residual_block(in_layer, filter_dims, num_layers, act_func=tf.nn.relu,
+def add_residual_block(in_layer, filter_dims, num_layers, act_func=tf.nn.relu, norm='layer',
                        b_train=False, use_residual=True, scope='residual_block', use_dilation=False, sn=False):
     with tf.variable_scope(scope):
         l = in_layer
@@ -315,7 +315,7 @@ def add_residual_block(in_layer, filter_dims, num_layers, act_func=tf.nn.relu,
 
         for i in range(num_layers):
             l = layers.add_residual_layer(l, filter_dims=[filter_dims[0], filter_dims[1], num_channel_out / 4],
-                                          act_func=act_func, b_train=b_train,
+                                          act_func=act_func, norm=norm, b_train=b_train,
                                           scope='layer' + str(i), dilation=dilation, sn=sn)
 
         l = layers.conv(l, scope='bt_conv2', filter_dims=[1, 1, num_channel_out], stride_dims=[1, 1],
@@ -706,8 +706,8 @@ def train(model_path):
     one_hot_length = len(os.listdir(imgs_dirname))
 
     with tf.device('/device:CPU:0'):
-        X = tf.placeholder(tf.float32, [None, input_height, input_width, num_channel])
-        Y = tf.placeholder(tf.float32, [None, num_class_per_group])
+        X = tf.placeholder(tf.float32, [batch_size, input_height, input_width, num_channel])
+        Y = tf.placeholder(tf.float32, [batch_size, num_class_per_group])
 
         for idx, labelname in enumerate(dir_list):
             imgs_list = load_images_from_folder(os.path.join(imgs_dirname, labelname), use_augmentation=True)
@@ -860,7 +860,7 @@ def train(model_path):
 
             test_indices = np.arange(len(teX))  # Get A Test Batch
             np.random.shuffle(test_indices)
-            test_indices = test_indices[0:100]
+            test_indices = test_indices[0:batch_size]
 
             print('# Test Set #')
             print(np.argmax(teY[test_indices], axis=1))
@@ -869,12 +869,6 @@ def train(model_path):
             print(sess.run(predict_op,
                            feed_dict={X: teX[test_indices], Y: teY[test_indices],
                                       b_train: False}))
-
-            precision = np.mean(np.argmax(teY[test_indices], axis=1) ==
-                                sess.run(predict_op,
-                                         feed_dict={X: teX[test_indices], Y: teY[test_indices],
-                                                    b_train: False}))
-            print('epoch ' + str(i + 1) + ', precision: ' + str(100 * precision) + ' %')
 
 
 def int_from_bytes(b3, b2, b1, b0):
@@ -933,8 +927,8 @@ def test(model_path):
     threshold = 0.97
     print('Serving Mode, threshold: ' + str(threshold))
 
-    X = tf.placeholder(tf.float32, [None, input_height, input_width, num_channel])
-    Y = tf.placeholder(tf.float32, [None, num_class_per_group])
+    X = tf.placeholder(tf.float32, [1, input_height, input_width, num_channel])
+    Y = tf.placeholder(tf.float32, [1, num_class_per_group])
 
     print('Number of Classes: ' + str(num_class_per_group))
     # Network setup
@@ -1169,8 +1163,8 @@ if __name__ == '__main__':
 
         num_class_per_group = len(label_list)
 
-        X = tf.placeholder(tf.float32, [None, input_height, input_width, num_channel])
-        Y = tf.placeholder(tf.float32, [None, num_class_per_group])
+        X = tf.placeholder(tf.float32, [1, input_height, input_width, num_channel])
+        Y = tf.placeholder(tf.float32, [1, num_class_per_group])
 
         print('Number of Classes: ' + str(num_class_per_group))
         # Network setup
