@@ -465,18 +465,13 @@ def encoder_network(x, activation='relu', scope='encoder_network', norm='layer',
                                      act_func=act_func, norm=norm, b_train=b_train, scope='block_10')
 
         with tf.variable_scope('dense_block_last'):
-            scale_layer = layers.add_dense_transition_layer(l, filter_dims=[1, 1, representation_dim],
-                                                            act_func=act_func,
-                                                            scope='dense_transition_1', norm=norm, b_train=b_train,
-                                                            use_pool=False)
             last_dense_layer = layers.add_dense_transition_layer(l, filter_dims=[1, 1, representation_dim],
                                                                  act_func=act_func,
                                                                  scope='dense_transition_2', norm=norm, b_train=b_train,
                                                                  use_pool=False)
-            scale_layer = act_func(scale_layer)
             last_dense_layer = act_func(last_dense_layer)
 
-    return last_dense_layer, scale_layer, l_share
+    return last_dense_layer
 
 
 def load_images_patch(filename, b_align=False):
@@ -767,7 +762,7 @@ def train(model_path):
 
     print('Number of Classes: ' + str(num_class_per_group))
     # Network setup
-    cnn_representation, _, anchor_layer = encoder_network(X, norm='layer', b_train=b_train, activation='relu', scope='encoder')
+    cnn_representation = encoder_network(X, norm='batch', b_train=b_train, activation='relu', scope='encoder')
     print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
     cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
@@ -932,7 +927,7 @@ def test(model_path):
 
     print('Number of Classes: ' + str(num_class_per_group))
     # Network setup
-    cnn_representation, _, anchor_layer = encoder_network(X, norm='layer', b_train=b_train, activation='relu', scope='encoder')
+    cnn_representation = encoder_network(X, norm='batch', b_train=b_train, activation='relu', scope='encoder')
     print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
     cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
@@ -1168,7 +1163,7 @@ if __name__ == '__main__':
 
         print('Number of Classes: ' + str(num_class_per_group))
         # Network setup
-        cnn_representation, _, anchor_layer = encoder_network(X, norm='layer', b_train=b_train, activation='relu', scope='encoder')
+        cnn_representation = encoder_network(X, norm='batch', b_train=b_train, activation='relu', scope='encoder')
         print('CNN Output Tensor Dimension: ' + str(cnn_representation.get_shape().as_list()))
 
         cnn_representation = layers.global_avg_pool(cnn_representation, representation_dim, scope='gap')
