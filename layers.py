@@ -357,10 +357,11 @@ def deconv(input_data, b_size, scope, filter_dims, stride_dims, padding='SAME', 
 
         map = tf.nn.bias_add(map, deconv_bias)
 
-        activation = non_linear_fn(map)
+        if non_linear_fn is not None:
+            map = non_linear_fn(map)
 
         # print(scope, 'out', activation.get_shape().as_list())
-        return activation
+        return map
 
 
 def self_attention(x, channels, act_func=tf.nn.relu, scope='attention'):
