@@ -31,7 +31,7 @@ input_height = 96
 scale_size = 112
 num_channel = 3
 num_patch = 4
-batch_size = 16
+batch_size = 32
 test_size = 100
 num_class_per_group = 70
 num_epoch = 30
@@ -302,19 +302,19 @@ def add_residual_block(in_layer, filter_dims, num_layers, act_func=tf.nn.relu, n
         l = in_layer
         input_dims = in_layer.get_shape().as_list()
         num_channel_in = input_dims[-1]
-        num_channel_out = input_dims[-1]
+        num_channel_out = filter_dims[-1]
 
         dilation = [1, 1, 1, 1]
 
         if use_dilation == True:
             dilation = [1, 2, 2, 1]
 
-        l = layers.conv(l, scope='bt_conv1', filter_dims=[1, 1, num_channel_out / 4], stride_dims=[1, 1],
+        l = layers.conv(l, scope='bt_conv1', filter_dims=[1, 1, num_channel_out // 4], stride_dims=[1, 1],
                         dilation=[1, 1, 1, 1],
                         non_linear_fn=None, bias=False, sn=False)
 
         for i in range(num_layers):
-            l = layers.add_residual_layer(l, filter_dims=[filter_dims[0], filter_dims[1], num_channel_out / 4],
+            l = layers.add_residual_layer(l, filter_dims=[filter_dims[0], filter_dims[1], num_channel_out // 4],
                                           act_func=act_func, norm=norm, b_train=b_train,
                                           scope='layer' + str(i), dilation=dilation, sn=sn)
 
@@ -342,11 +342,11 @@ def add_residual_dense_block(in_layer, filter_dims, num_layers, act_func=tf.nn.r
         if use_dilation == True:
             dilation = [1, 2, 2, 1]
 
-        l = layers.conv(l, scope='bt_conv', filter_dims=[1, 1, num_channel_out / 4], stride_dims=[1, 1], dilation=[1, 1, 1, 1],
+        l = layers.conv(l, scope='bt_conv', filter_dims=[1, 1, num_channel_out // 4], stride_dims=[1, 1], dilation=[1, 1, 1, 1],
                     non_linear_fn=None, bias=False, sn=False)
 
         for i in range(num_layers):
-            l = layers.add_dense_layer(l, filter_dims=[filter_dims[0], filter_dims[1], num_channel_out / 4], act_func=act_func,
+            l = layers.add_dense_layer(l, filter_dims=[filter_dims[0], filter_dims[1], num_channel_out // 4], act_func=act_func,
                                        norm=norm, b_train=b_train, scope='layer' + str(i), dilation=dilation)
 
         l = layers.add_dense_transition_layer(l, filter_dims=[1, 1, num_channel_out], act_func=act_func,
